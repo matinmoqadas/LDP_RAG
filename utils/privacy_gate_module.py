@@ -1,78 +1,108 @@
-import json
-import re
-from typing import Literal
+import json, re
+from typing import Literal, List, Dict
 
 from langchain_openai import ChatOpenAI
 from langchain.schema import SystemMessage, HumanMessage
 
-# -------------- Configuration --------------
-base_url   = "https://api.avalai.ir/v1"
-api_key    = "aa-"
-model_name = "gpt-4o-mini"
+# ─────────── 0.  MODEL HANDLES ──────────────────────────────
+def make_llm(temp: float) -> ChatOpenAI:
+    return ChatOpenAI(
+        base_url="",
+        model="gpt-4o",
+        api_key="aa-",
+        temperature=temp,
+    )
 
-llm = ChatOpenAI(
-    base_url=base_url,
-    model=model_name,
-    api_key=api_key,
-    temperature=0.0,
-)
+LLM_PRECISE = make_llm(0.0)   # Phase A
+LLM_DEEP    = make_llm(0.7)   # Phase B
 
 MAX_TOKENS = 512
 
-# -------------- Prompt Template --------------
-PRIVACY_GATE_TEMPLATE = """
+# ─────────── 1-A.  PRECISION PROMPT  (Phase A) ─────────────
+PRECISION_TMPL = """
 You are the Privacy Gate.
 
-Your job: rewrite the provided text chunk to obscure details per vagueness ε in [0.1,1.0].
-**Output**: ONLY a single JSON object, no markdown, no code fences, no explanations.
+Rewrite the text so that its vagueness matches ε = {epsilon}.
 
-Vagueness levels:
- • ε=1.0 → minimal vagueness (strip only explicit secrets)
- • ε=0.7 → slight vagueness (generalize minor specifics)
- • ε=0.5 → moderate vagueness (remove most specifics, keep core meaning)
- • ε=0.3 → high vagueness (only broad actions remain)
- • ε=0.1 → maximal vagueness (bare outline)
+Guidelines
+• ε = 1.0  → keep almost all specifics; redact only obvious secrets
+• ε = 0.7  → generalise a little
+• ε = 0.5  → remove/blur most specifics
+• ε = 0.3  → keep only broad actions
+• ε = 0.1  → bare outline
+
+Do NOT remove the core meaning.
 
 Label: {label}
-Epsilon: {epsilon}
-Original Chunk:
+Original text:
 \"\"\"{chunk}\"\"\"
 
-Return exactly:
-{{ "rewritten": "<sanitized text>" }}
-"""
+Return JSON only:
+{{"rewritten": "<sanitised>"}}"""
 
-def privacy_gate_sanitize(
-    chunk: str,
-    label: Literal["PUBLIC", "SENSITIVE", "CONFIDENTIAL"],
-    epsilon: float
-) -> str:
-    prompt = PRIVACY_GATE_TEMPLATE.format(
-        label=label,
-        epsilon=epsilon,
-        chunk=chunk.replace('"','\\"')
-    )
+# ─────────── 1-B.  DEEP-OBFUSCATE PROMPT (Phase B) ─────────
+DEEP_TMPL = """
+You are the Privacy Gate – deep-obfuscation mode.
 
-    messages = [
-        SystemMessage(content="You are a privacy-focused assistant."),
-        HumanMessage(content=prompt)
-    ]
-    resp = llm(messages, max_tokens=MAX_TOKENS)
-    raw = resp.content.strip()
+Take the input text and rewrite it so it is **even vaguer** than before:
+• shorten sentences,
+• replace any remaining specifics with generic terms,
+• rephrase with **different wording** than the previous version,
+• keep overall intent.
 
-    # Try to pull out the first {...} block
-    match = re.search(r'\{.*\}', raw, re.DOTALL)
-    if not match:
-        # Dump raw for debugging
-        raise ValueError(f"LLM response contained no JSON.\n\n---RAW---\n{raw}\n---END RAW---")
+Return JSON only:
+{{"rewritten": "<even more vague text>"}}"""
 
-    json_str = match.group(0)
-    try:
-        obj = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse JSON:\n{json_str}\nError: {e}")
+# ─────────── 2.  LOW-LEVEL CALL HELPERS ─────────────────────
+_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+def _call(llm: ChatOpenAI, prompt: str) -> str:
+    resp = llm(
+        [SystemMessage(content="You are a privacy-focused assistant."),
+         HumanMessage(content=prompt)],
+        max_tokens=MAX_TOKENS,
+    ).content.strip()
+    m = _JSON_RE.search(resp)
+    if not m:
+        raise ValueError(f"Missing JSON:\n{resp}")
+    obj = json.loads(m.group(0))
     if "rewritten" not in obj:
-        raise ValueError(f"JSON has no 'rewritten' key:\n{obj}")
-
+        raise ValueError(f"No 'rewritten' key:\n{obj}")
     return obj["rewritten"]
+
+# ─────────── 3-A.  single-pass sanitiser (Phase A) ─────────
+def sanitise_once(chunk: str, label: str, ε: float) -> str:
+    prompt = PRECISION_TMPL.format(
+        label=label, epsilon=ε, chunk=chunk.replace('"', '\\"')
+    )
+    return _call(LLM_PRECISE, prompt)
+
+# ─────────── 3-B.  deep-obfuscate step (Phase B) ───────────
+def deep_obfuscate(prev: str) -> str:
+    prompt = DEEP_TMPL.format(chunk=prev.replace('"', '\\"'))
+    return _call(LLM_DEEP, prompt)
+
+# ─────────── 4.  public pipeline ───────────────────────────
+def privacy_gate_pipeline(
+    text: str,
+    label: Literal["PUBLIC", "SENSITIVE", "CONFIDENTIAL"],
+    eps_schedule: List[float] = (1.0, 0.7, 0.5, 0.3, 0.1),
+    deep_rounds: int = 4,
+) -> Dict[float, List[str]]:
+    """
+    Phase A: run once for every ε in eps_schedule
+    Phase B: take ε=min(eps_schedule) output, run 'deep_rounds' extra passes
+    Returns {ε: [v1, v2, …]}  (ε>min → one element; ε_min → deep_rounds+1 elems)
+    """
+    results = {}
+    current = text
+    for ε in eps_schedule:
+        current = sanitise_once(current, label, ε)
+        results[ε] = [current]
+
+    ε_min = min(eps_schedule)
+    for _ in range(deep_rounds):
+        current = deep_obfuscate(current)
+        results[ε_min].append(current)
+
+    return results

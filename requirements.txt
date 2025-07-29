@@ -1,0 +1,16 @@
+openai
+langchain-openai
+langchain-community
+langchain
+ragas
+json5
+spacy
+
+sentence_transformers
+rouge
+nltk
+tiktoken
+datasets
+sklearn
+python-dotenv
+langchain-chrome

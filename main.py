@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Any
 
-import json5  
+import json5  # third-party
 
 # ---------------------------------------------------------------------------
 # 0.  Registry of available RAG classes 
@@ -45,8 +45,11 @@ DEFAULT_Q_DIR     = os.path.join(DEFAULT_DATA_ROOT, "Attack Question")
 # ---------------------------------------------------------------------------
 def dynamic_import(path: str):
     module_path, _, cls_name = path.partition(":")
-    module = importlib.import_module(module_path)
-    return getattr(module, cls_name)
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, cls_name)
+    except (ImportError, AttributeError) as e:
+        raise ImportError(f"Could not import '{cls_name}' from '{module_path}': {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +137,7 @@ def load_metrics(metric_names: List[str]):
         if not hasattr(m_mod, name):
             raise ValueError(f"Metric '{name}' not found in utils.metrics")
         metric_fns[name] = getattr(m_mod, name)
-    print(f"• Loaded metrics: {', '.join(metric_fns)}")
+    print(f"• Loaded metrics: {', '.join(sorted(metric_fns))}")
     return metric_fns
 
 
@@ -171,6 +174,9 @@ def iterate_question_files(questions_dir: str):
 # ---------------------------------------------------------------------------
 # 7.  Main workflow
 # ---------------------------------------------------------------------------
+import logging
+logging.basicConfig(level=logging.INFO)
+
 def main() -> None:
     args = parse_args()
 
@@ -222,7 +228,7 @@ def main() -> None:
                 "file":            qrow["_file"],
             }
         )
-        print(f"✓ {q_type:15s} | {q_text[:60]}…")
+        logging.info(f"✓ {q_type:15s} | {q_text[:60]}…")
 
     # Save
     out_path = Path(args.output_path)
@@ -231,7 +237,7 @@ def main() -> None:
         for row in results:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    print(f"\n✔  Saved {len(results)} records → {out_path}")
+    logging.info(f"\n✔  Saved {len(results)} records → {out_path}")
 
 
 # ---------------------------------------------------------------------------

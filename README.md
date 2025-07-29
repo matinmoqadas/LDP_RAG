@@ -29,20 +29,22 @@
 ## 📁 Project layout
 
 ```text
-project/
+LDP_RAG/
 │
-├─ models/                   # ➜ each file defines ONE RAG class
-│   ├─ normal_rag.py         #   • NormalRAG
-│   ├─ privacy_gate_rag.py   #   • PrivacyGateRAG
-│   ├─ ldp_rag.py            #   • LDPRAG
-│   └─ adaptive_rag.py       #   • AdaptiveRAG
+├─ Models/                       # ➜ each file defines ONE RAG class
+│   ├─ HierarchicalRAG.py         #   • HierarchicalRAG
+│   ├─ HybridRag.py               #   • HybridRag
+│   ├─ LDP_RAG.py                 #   • LDPRAG
+│   ├─ NormalRag.py               #   • NormalRAG
+│   └─ Prompted_based_approaches.py #   • Prompted-based approaches
 │
 ├─ utils/
-│   ├─ metrics.py            # custom evaluation metrics
-│   └─ adaptive_chunking.py  # AdaptiveChunkSplitter (or get_splitter())
+│   ├─ Adaptive_chunking.py       # AdaptiveChunkSplitter (or get_splitter())
+│   ├─ Metrics.py                 # custom evaluation metrics
+│   └─ privacy_gate_module.py     # Privacy-related utilities
 │
-├─ main.py                   # single CLI entry‑point
-└─ README.md                 # you are here
+├─ main.py                       # single CLI entry‑point
+└─ README.md                      # you are here
 ```
 
 ```text

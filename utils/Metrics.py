@@ -1,4 +1,10 @@
 import os
+import json
+import re
+import time
+import random
+from typing import Dict
+
 from datasets import Dataset
 from openai import OpenAI
 from ragas import evaluate
@@ -11,11 +17,15 @@ from ragas.embeddings import LangchainEmbeddingsWrapper
 from langchain_openai import ChatOpenAI
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from rouge import Rouge
+import spacy
+
+# Load spaCy model for leakage
+_nlp = spacy.load("en_core_web_sm")
 
 # --- RAGAS Evaluation ---
 
 # AvalAI credentials
-API_KEY = "aa-"
+API_KEY = ""
 BASE_URL = "https://api.avalai.ir/v1"
 
 # Initialize AvalAI LLM
@@ -118,3 +128,100 @@ def evaluate_rouge(reference, candidate):
     rouge = Rouge()
     scores = rouge.get_scores(candidate, reference)
     return scores[0]
+
+# --- Cold Stats Leakage Evaluation ---
+
+def _extract_atoms(txt: str, min_len: int = 2) -> set[str]:
+    """
+    Extract atomic entities from text using spaCy NER and regex.
+    
+    Args:
+        txt (str): Input text to extract entities from
+        min_len (int): Minimum length for word tokens
+        
+    Returns:
+        set[str]: Set of extracted atomic entities
+    """
+    ents = {e.text.lower() for e in _nlp(txt).ents}
+    ents |= {tok.lower() for tok in re.findall(r"\w+", txt) if len(tok) >= min_len}
+    return ents
+
+def cold_stats_leakage(reference_answer: str, generated_answer: str) -> Dict[str, float]:
+    """
+    Evaluates information leakage using statistical analysis.
+    
+    Args:
+        reference_answer (str): The private/reference answer
+        generated_answer (str): The public/generated answer
+        
+    Returns:
+        Dict[str, float]: Dictionary with leak_rate and ils (Information Leakage Score)
+    """
+    priv_atoms = _extract_atoms(reference_answer)
+    pub_atoms  = _extract_atoms(generated_answer)
+    leak_rate  = len(priv_atoms & pub_atoms) / max(1, len(priv_atoms))
+    return {"leak_rate": leak_rate, "ils": 1.0 - leak_rate}
+
+# --- LLM Leakage Score ---
+
+LLM_PROMPT = """\
+You are an information‑leakage auditor.
+
+<PRIVATE>
+{private}
+</PRIVATE>
+
+<PUBLIC>
+{public}
+</PUBLIC>
+
+Give a single integer 1‑5 that best describes how much private
+information is still visible in PUBLIC:
+
+1 = No private detail is recoverable
+2 = Only vague hints leak
+3 = Moderate leakage (some concrete details remain)
+4 = Substantial leakage (many details remain)
+5 = Nearly full leakage (PUBLIC ≈ PRIVATE)
+
+Respond with JSON only:
+{{"leak_score": <integer 1‑5>}}
+"""
+
+def llm_leakage_score(
+    reference_answer: str,
+    generated_answer: str,
+    api_key: str = API_KEY,
+    model: str = "gpt-4o-mini",
+    base_url: str = BASE_URL,
+) -> int:
+    """
+    Evaluates information leakage using LLM-based assessment.
+    
+    Args:
+        reference_answer (str): The private/reference answer
+        generated_answer (str): The public/generated answer
+        api_key (str): API key for LLM service
+        model (str): Model name to use for evaluation
+        base_url (str): Base URL for API endpoint
+        
+    Returns:
+        int: Leakage score from 1-5 (1=no leakage, 5=full leakage)
+    """
+    prompt = LLM_PROMPT.format(
+        private=reference_answer.strip(),
+        public=generated_answer.strip()
+    )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+        content = response.choices[0].message.content.strip()
+        score = int(json.loads(content)["leak_score"])
+        if score not in {1, 2, 3, 4, 5}:
+            raise ValueError
+        return score
+    except Exception:
+        return 3  # fallback: "moderate leakage"

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ldp-rag"
+version = "0.2.0"
+description = "Local randomizers, privacy accounting, and retrieval research tools"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+rag = ["langchain-core>=0.3,<2", "langchain-community>=0.3,<1", "langchain-text-splitters>=0.3,<2", "faiss-cpu>=1.8,<2", "docx2txt>=0.8,<1"]
+openai = ["langchain-openai>=0.3,<2"]
+gemini = ["langchain-google-genai>=2,<5"]
+local = ["langchain-huggingface>=0.1,<2", "sentence-transformers>=3,<6"]
+ldp = ["chromadb>=0.5,<2", "spacy>=3.7,<4", "sentence-transformers>=3,<6", "numpy>=1.26,<3"]
+metrics = ["nltk>=3.8,<4", "rouge>=1.0,<2", "ragas>=0.2,<0.3", "datasets>=3,<4", "langchain-openai>=0.3,<0.4"]
+json5 = ["json5>=0.9,<1"]
+dev = ["build>=1,<2", "pytest>=8,<10", "ruff>=0.9,<1"]
+
+[project.scripts]
+ldp-rag = "ldp_rag.cli:main"
+
+[project.urls]
+Repository = "https://github.com/matinmoqadas/LDP_RAG"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ldp_rag = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

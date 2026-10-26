@@ -1,0 +1,9 @@
+include UPSTREAM.md
+include VALIDATION.md
+include main.py
+recursive-include examples *.py
+recursive-include examples *.json
+recursive-include docs *.md
+recursive-include Models *.py
+recursive-include utils *.py *.ipynb
+recursive-include .github *.yml
